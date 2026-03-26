@@ -24,6 +24,9 @@ def build_pdf_report(state: EDAState) -> bytes:
     pdf.setFont(font_name, font_size)
     y = 28 * cm
 
+    # Placeholder hook for future conditional report content.
+    include_execution_order = state.show_execution_order
+
     def sanitize(text: str) -> str:
         return re.sub(r"\s*\(llm_error=[^)]*\)", "", text or "")
 
@@ -88,6 +91,10 @@ def build_pdf_report(state: EDAState) -> bytes:
         write(f"{idx}. {insight.skeptic.verdict.value}: {sanitize(insight.hypothesis)}")
         write(f"Function: {insight.function_name}")
         write(f"Narrative: {sanitize(insight.narrative)}")
+
+    if include_execution_order:
+        # Intentionally no PDF changes yet; this branch confirms flag plumbing.
+        pass
 
     pdf.save()
     buffer.seek(0)

@@ -14,6 +14,7 @@ class EDAState(BaseModel):
     cleaned_df: pd.DataFrame | None = None
     data_profile: dict[str, Any] = Field(default_factory=dict)
     cleaning_plan: CleaningPlan | None = None
+    show_execution_order: bool = False
 
     insight_ledger: list[Insight] = Field(default_factory=list)
     accepted_count: int = 0

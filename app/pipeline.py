@@ -22,8 +22,12 @@ def request_signature(specialist_name: str, hypothesis: str, function_call: Func
     return f"{specialist_name}|{function_call.function_name}|{canonical_args}|{normalized_hypothesis}"
 
 
-def run_analysis(dataframe, dataset_name: str) -> bytes:
-    state = EDAState(dataset_name=dataset_name, raw_df=dataframe)
+def run_analysis(dataframe, dataset_name: str, show_execution_order: bool = False) -> bytes:
+    state = EDAState(
+        dataset_name=dataset_name,
+        raw_df=dataframe,
+        show_execution_order=show_execution_order,
+    )
 
     state.data_profile = profile_dataframe(state.raw_df)
     state.cleaning_plan = build_cleaning_plan(state.data_profile, state.raw_df)
