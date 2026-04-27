@@ -41,7 +41,7 @@ class FunctionCall(BaseModel):
     @model_validator(mode="after")
     def validate_fields_for_function(self):
         fn = self.function_name
-        if fn in {"pearson_correlation", "spearman_correlation", "chi_square_independence"}:
+        if fn in {"pearson_correlation", "spearman_correlation", "chi_square_independence", "linear_regression"}:
             if not self.x or not self.y:
                 raise ValueError(f"{fn} requires x and y")
         elif fn == "independent_t_test":
@@ -54,7 +54,7 @@ class FunctionCall(BaseModel):
 
     def to_kwargs(self) -> dict[str, str]:
         fn = self.function_name
-        if fn in {"pearson_correlation", "spearman_correlation", "chi_square_independence"}:
+        if fn in {"pearson_correlation", "spearman_correlation", "chi_square_independence", "linear_regression"}:
             return {"x": str(self.x), "y": str(self.y)}
         if fn == "independent_t_test":
             return {"numeric": str(self.numeric), "group": str(self.group)}
@@ -69,6 +69,7 @@ class SpecialistCallProposal(BaseModel):
         "spearman_correlation",
         "independent_t_test",
         "chi_square_independence",
+        "linear_regression",
         "shapiro_wilk",
     ]
     args: dict[str, str] = Field(default_factory=dict)
@@ -79,6 +80,7 @@ class SpecialistCallProposal(BaseModel):
             "pearson_correlation": {"x", "y"},
             "spearman_correlation": {"x", "y"},
             "chi_square_independence": {"x", "y"},
+            "linear_regression": {"x", "y"},
             "independent_t_test": {"numeric", "group"},
             "shapiro_wilk": {"x"},
         }

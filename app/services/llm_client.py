@@ -1,48 +1,46 @@
 import os
+from typing import TypedDict
 
 from dotenv import load_dotenv
-from langchain_ollama import ChatOllama
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 load_dotenv()
 
 
-DEFAULT_MODEL = "qwen3.5:2b"
+DEFAULT_MODEL = "gemini-3.1-pro-preview"
 DEFAULT_TEMPERATURE = 0.2
-DEFAULT_REASONING = False
 
 
-def get_agent_config(agent_key: str) -> dict[str, object]:
-    model = os.getenv(f"OLLAMA_{agent_key}_MODEL") or os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
-    temperature = float(
-        os.getenv(f"OLLAMA_{agent_key}_TEMPERATURE")
-        or os.getenv("OLLAMA_TEMPERATURE", str(DEFAULT_TEMPERATURE))
-    )
-
-    reasoning_raw = (
-        os.getenv(f"OLLAMA_{agent_key}_REASONING")
-        or os.getenv("OLLAMA_REASONING", str(DEFAULT_REASONING))
-    ).strip().lower()
-    reasoning = reasoning_raw in {"1", "true", "yes", "on"}
+def get_config() -> dict[str, str | float]:
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY is not set")
 
     return {
-        "model": model,
-        "temperature": temperature,
-        "reasoning": reasoning,
+        "api_key": api_key,
+        "model": os.getenv("GOOGLE_MODEL", DEFAULT_MODEL).strip(),
+        "temperature": float(os.getenv("GOOGLE_TEMPERATURE", str(DEFAULT_TEMPERATURE))),
     }
 
 
-def create_llm(agent_key: str) -> ChatOllama:
-    cfg = get_agent_config(agent_key)
-    return ChatOllama(
+def create_llm() -> ChatGoogleGenerativeAI:
+    cfg = get_config()
+    return ChatGoogleGenerativeAI(
         model=str(cfg["model"]),
-        temperature=float(str(cfg["temperature"])),
-        reasoning=bool(cfg["reasoning"]),
+        temperature=float(cfg["temperature"]),
+        google_api_key=str(cfg["api_key"]),
+        thinking_level="minimal"
     )
 
 
 def structured(prompt: str, schema_model, agent_key: str):
-    llm = create_llm(agent_key)
-    result = llm.with_structured_output(schema_model).invoke(prompt)
+    _ = agent_key
+    llm = create_llm()
+    structured_llm = llm.with_structured_output(
+        schema=schema_model.model_json_schema(),
+        method="json_schema",
+    )
+    result = structured_llm.invoke(prompt)
     if isinstance(result, schema_model):
         return result
     return schema_model.model_validate(result)

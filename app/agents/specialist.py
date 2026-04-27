@@ -10,12 +10,13 @@ from app.services.rag import retrieve_context
 ALLOWED_FUNCTIONS: dict[str, list[str]] = {
     "univariate": ["shapiro_wilk"],
     "bivariate": ["pearson_correlation", "spearman_correlation", "independent_t_test", "chi_square_independence"],
-    "regression": ["pearson_correlation", "spearman_correlation"],
+    "regression": ["linear_regression", "pearson_correlation", "spearman_correlation"],
 }
 ARG_KEYS_BY_FUNCTION: dict[str, list[str]] = {
     "pearson_correlation": ["x", "y"],
     "spearman_correlation": ["x", "y"],
     "chi_square_independence": ["x", "y"],
+    "linear_regression": ["x", "y"],
     "independent_t_test": ["numeric", "group"],
     "shapiro_wilk": ["x"],
 }
@@ -36,6 +37,8 @@ def build_args_key_rules(allowed: list[str]) -> str:
         keys = ", ".join(ARG_KEYS_BY_FUNCTION[fn])
         if fn in {"pearson_correlation", "spearman_correlation"}:
             lines.append(f"- {fn}: args keys must be {{{keys}}}; both must be numeric columns.")
+        elif fn == "linear_regression":
+            lines.append("- linear_regression: args keys must be {x, y}; x is numeric predictor, y is numeric target.")
         elif fn == "independent_t_test":
             lines.append("- independent_t_test: args keys must be {numeric, group}; numeric must be numeric, group categorical.")
         elif fn == "chi_square_independence":
@@ -64,7 +67,7 @@ def valid_for_df(call: SpecialistCallProposal, df: pd.DataFrame, specialist_name
 
     args = call.args
     fn = call.function_name
-    if fn in {"pearson_correlation", "spearman_correlation"}:
+    if fn in {"pearson_correlation", "spearman_correlation", "linear_regression"}:
         return is_numeric(df, args.get("x", "")) and is_numeric(df, args.get("y", ""))
 
     if fn == "independent_t_test":
@@ -92,11 +95,28 @@ def invalid_reason(call: SpecialistCallProposal, specialist_name: str) -> str:
     return "args values must use valid columns and satisfy numeric/categorical constraints"
 
 
+def format_context(contexts: list[dict[str, object]]) -> str:
+    if not contexts:
+        return "No retrieved guidance."
+    return "\n".join(
+        f"{item['rank']}. {item['title']}: {item['content']}"
+        for item in contexts
+    )
+
+
 def fallback_call(specialist_name: str, hypothesis: str, df: pd.DataFrame) -> FunctionCall:
     numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     categorical_cols = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])]
 
-    if specialist_name in {"bivariate", "regression"} and len(numeric_cols) >= 2:
+    if specialist_name == "regression" and len(numeric_cols) >= 2:
+        return FunctionCall(
+            function_name="linear_regression",
+            x=numeric_cols[0],
+            y=numeric_cols[1],
+            hypothesis=hypothesis,
+        )
+
+    if specialist_name == "bivariate" and len(numeric_cols) >= 2:
         return FunctionCall(
             function_name="pearson_correlation",
             x=numeric_cols[0],
@@ -129,23 +149,30 @@ def fallback_call(specialist_name: str, hypothesis: str, df: pd.DataFrame) -> Fu
 
 
 def propose_specialist_call(specialist_name: str, hypothesis: str, df: pd.DataFrame) -> FunctionCall:
-    retrieve_context(hypothesis=hypothesis, k=3, enabled=False)
-
     numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     categorical_cols = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])]
     allowed = ALLOWED_FUNCTIONS[specialist_name]
     function_rules = build_args_key_rules(allowed)
+    contexts = retrieve_context(
+        hypothesis=hypothesis,
+        k=3,
+        enabled=True,
+        allowed_functions=allowed,
+    )
 
     base_prompt = (
-        "You are a statistical specialist. Return ONLY JSON. No prose.\n"
-        "Output schema: {function_name: string, args: object}.\n"
-        "args must contain ONLY the keys required for the chosen function_name.\n"
+        "You are a statistical specialist. Return ONLY JSON matching "
+        "{function_name: string, args: object}. No prose.\n"
         f"Specialist: {specialist_name}\n"
         f"Allowed function_name values: {', '.join(allowed)}\n"
-        f"IMPORTANT HYPOTHESIS (must be tested): {hypothesis}\n"
+        f"Hypothesis to test: {hypothesis}\n"
         f"Numeric columns: {json.dumps(numeric_cols)}\n"
         f"Categorical columns: {json.dumps(categorical_cols)}\n"
-        "Function-specific args contract:\n"
+        "Retrieved statistical guidance:\n"
+        f"{format_context(contexts)}\n"
+        "Choose one allowed function whose assumptions best match the hypothesis and available column types.\n"
+        "args must contain exactly the required keys for that function and must use existing columns.\n"
+        "Argument rules:\n"
         f"{function_rules}"
     )
 

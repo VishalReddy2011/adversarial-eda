@@ -90,6 +90,14 @@ def build_pdf_report(state: EDAState) -> bytes:
     for idx, insight in enumerate(state.insight_ledger, start=1):
         write(f"{idx}. {insight.skeptic.verdict.value}: {sanitize(insight.hypothesis)}")
         write(f"Function: {insight.function_name}")
+        stats = ", ".join(
+            f"{key}={value}"
+            for key, value in insight.result.statistics.items()
+            if key in {"statistic", "p_value", "n", "r_squared", "cohen_d", "cramers_v"}
+        )
+        if stats:
+            write(f"Stats: {stats}")
+        write(f"Skeptic: {sanitize(insight.skeptic.reason)}")
         write(f"Narrative: {sanitize(insight.narrative)}")
 
     if include_execution_order:
