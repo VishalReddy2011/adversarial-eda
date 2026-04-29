@@ -41,12 +41,18 @@ class FunctionCall(BaseModel):
     @model_validator(mode="after")
     def validate_fields_for_function(self):
         fn = self.function_name
-        if fn in {"pearson_correlation", "spearman_correlation", "chi_square_independence", "linear_regression"}:
+        if fn in {
+            "pearson_correlation",
+            "spearman_correlation",
+            "chi_square_independence",
+            "fisher_exact_test",
+            "linear_regression",
+        }:
             if not self.x or not self.y:
                 raise ValueError(f"{fn} requires x and y")
-        elif fn == "independent_t_test":
+        elif fn in {"independent_t_test", "one_way_anova", "mann_whitney_u", "kruskal_wallis"}:
             if not self.numeric or not self.group:
-                raise ValueError("independent_t_test requires numeric and group")
+                raise ValueError(f"{fn} requires numeric and group")
         elif fn == "shapiro_wilk":
             if not self.x:
                 raise ValueError("shapiro_wilk requires x")
@@ -54,9 +60,15 @@ class FunctionCall(BaseModel):
 
     def to_kwargs(self) -> dict[str, str]:
         fn = self.function_name
-        if fn in {"pearson_correlation", "spearman_correlation", "chi_square_independence", "linear_regression"}:
+        if fn in {
+            "pearson_correlation",
+            "spearman_correlation",
+            "chi_square_independence",
+            "fisher_exact_test",
+            "linear_regression",
+        }:
             return {"x": str(self.x), "y": str(self.y)}
-        if fn == "independent_t_test":
+        if fn in {"independent_t_test", "one_way_anova", "mann_whitney_u", "kruskal_wallis"}:
             return {"numeric": str(self.numeric), "group": str(self.group)}
         if fn == "shapiro_wilk":
             return {"x": str(self.x)}
@@ -68,7 +80,11 @@ class SpecialistCallProposal(BaseModel):
         "pearson_correlation",
         "spearman_correlation",
         "independent_t_test",
+        "one_way_anova",
+        "mann_whitney_u",
+        "kruskal_wallis",
         "chi_square_independence",
+        "fisher_exact_test",
         "linear_regression",
         "shapiro_wilk",
     ]
@@ -80,8 +96,12 @@ class SpecialistCallProposal(BaseModel):
             "pearson_correlation": {"x", "y"},
             "spearman_correlation": {"x", "y"},
             "chi_square_independence": {"x", "y"},
+            "fisher_exact_test": {"x", "y"},
             "linear_regression": {"x", "y"},
             "independent_t_test": {"numeric", "group"},
+            "one_way_anova": {"numeric", "group"},
+            "mann_whitney_u": {"numeric", "group"},
+            "kruskal_wallis": {"numeric", "group"},
             "shapiro_wilk": {"x"},
         }
 
@@ -132,3 +152,11 @@ class OrchestratorProposal(BaseModel):
 
 class TranslatorOutput(BaseModel):
     narrative: str
+
+
+class ExecutiveSummaryOutput(BaseModel):
+    summary: str
+
+
+class RecommendedActionsOutput(BaseModel):
+    actions: list[str] = Field(default_factory=list)

@@ -10,6 +10,8 @@ MAX_ACCEPTED = 3
 MAX_FUNCTION_CALLS = 5
 MAX_ORCHESTRATOR_RETRIES = 5
 ALLOWED_SPECIALISTS = {"univariate", "bivariate", "regression"}
+MAX_PROFILE_COLUMNS = 40
+MAX_PROFILE_ALERTS = 6
 
 
 def _valid_non_stop_proposal(proposal: OrchestratorProposal) -> bool:
@@ -30,12 +32,90 @@ def _invalid_reason(proposal: OrchestratorProposal) -> str | None:
     return None
 
 
-def next_step(df: pd.DataFrame, accepted_count: int, function_calls: int, insight_ledger) -> OrchestratorDecision:
+def _format_number(value) -> str:
+    if value is None:
+        return "unknown"
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    return str(value)
+
+
+def _format_column_profile(column: dict) -> str:
+    name = column.get("name", "unknown")
+    col_type = column.get("type", "unknown")
+    missing = column.get("missing", 0)
+    distinct = column.get("distinct", "unknown")
+
+    if col_type == "Numeric":
+        parts = [
+            f"{name} (numeric)",
+            f"missing={missing}",
+            f"distinct={distinct}",
+            f"mean={_format_number(column.get('mean'))}",
+            f"std={_format_number(column.get('std'))}",
+            f"range={_format_number(column.get('min'))}..{_format_number(column.get('max'))}",
+        ]
+        skewness = column.get("skewness")
+        if skewness is not None:
+            parts.append(f"skew={_format_number(skewness)}")
+        return "- " + "; ".join(parts)
+
+    top_values = column.get("top_values", [])
+    values = ", ".join(
+        f"{item.get('value')}={item.get('count')}"
+        for item in top_values[:5]
+        if isinstance(item, dict)
+    )
+    suffix = f"; values: {values}" if values else ""
+    return f"- {name} ({col_type}); missing={missing}; distinct={distinct}{suffix}"
+
+
+def _profile_for_prompt(data_profile: dict | None, df: pd.DataFrame) -> str:
+    if not data_profile:
+        data_profile = {
+            "shape": {"rows": int(df.shape[0]), "columns": int(df.shape[1])},
+            "numeric_columns": [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])],
+            "categorical_columns": [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])],
+            "columns": [],
+            "alerts": [],
+        }
+
+    shape = data_profile.get("shape", {})
+    table = data_profile.get("table", {})
+    numeric_columns = data_profile.get("numeric_columns", [])
+    categorical_columns = data_profile.get("categorical_columns", [])
+    columns = data_profile.get("columns", [])[:MAX_PROFILE_COLUMNS]
+    alerts = data_profile.get("alerts", [])[:MAX_PROFILE_ALERTS]
+
+    lines = [
+        f"Rows: {shape.get('rows', table.get('n', 'unknown'))}; columns: {shape.get('columns', table.get('n_var', 'unknown'))}",
+        f"Missing cells: {_format_number(table.get('p_cells_missing', 0))}; duplicate rows: {_format_number(table.get('p_duplicates', 0))}",
+        f"Numeric columns: {', '.join(numeric_columns) or 'None'}",
+        f"Categorical/boolean columns: {', '.join(categorical_columns) or 'None'}",
+        "Column summaries:",
+    ]
+    lines.extend(_format_column_profile(column) for column in columns)
+
+    if alerts:
+        lines.append("Profile hints:")
+        lines.extend(f"- {alert}" for alert in alerts)
+
+    return "\n".join(lines)
+
+
+def next_step(
+    df: pd.DataFrame,
+    accepted_count: int,
+    function_calls: int,
+    insight_ledger,
+    data_profile: dict | None = None,
+) -> OrchestratorDecision:
     if accepted_count >= MAX_ACCEPTED or function_calls >= MAX_FUNCTION_CALLS:
         return OrchestratorDecision(hypothesis="", specialist_name="", stop=True)
 
     numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     categorical_cols = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])]
+    profile_summary = _profile_for_prompt(data_profile, df)
 
     ledger_summary = []
     for item in insight_ledger[-5:]:
@@ -60,6 +140,8 @@ def next_step(df: pd.DataFrame, accepted_count: int, function_calls: int, insigh
         "- Be specific and testable in one function call.\n"
         "- Avoid repeating hypotheses already in the ledger.\n"
         "- Do not output a stop field.\n"
+        "Use the data profile to prioritize columns with enough non-missing data, meaningful variation, and sensible types.\n"
+        f"Data profile:\n{profile_summary}\n"
         f"Numeric columns: {json.dumps(numeric_cols)}\n"
         f"Categorical columns: {json.dumps(categorical_cols)}\n"
         f"Recent ledger (most recent first): {json.dumps(list(reversed(ledger_summary)))}"

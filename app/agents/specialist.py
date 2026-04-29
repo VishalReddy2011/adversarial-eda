@@ -9,15 +9,28 @@ from app.services.rag import retrieve_context
 
 ALLOWED_FUNCTIONS: dict[str, list[str]] = {
     "univariate": ["shapiro_wilk"],
-    "bivariate": ["pearson_correlation", "spearman_correlation", "independent_t_test", "chi_square_independence"],
+    "bivariate": [
+        "pearson_correlation",
+        "spearman_correlation",
+        "independent_t_test",
+        "one_way_anova",
+        "mann_whitney_u",
+        "kruskal_wallis",
+        "chi_square_independence",
+        "fisher_exact_test",
+    ],
     "regression": ["linear_regression", "pearson_correlation", "spearman_correlation"],
 }
 ARG_KEYS_BY_FUNCTION: dict[str, list[str]] = {
     "pearson_correlation": ["x", "y"],
     "spearman_correlation": ["x", "y"],
     "chi_square_independence": ["x", "y"],
+    "fisher_exact_test": ["x", "y"],
     "linear_regression": ["x", "y"],
     "independent_t_test": ["numeric", "group"],
+    "one_way_anova": ["numeric", "group"],
+    "mann_whitney_u": ["numeric", "group"],
+    "kruskal_wallis": ["numeric", "group"],
     "shapiro_wilk": ["x"],
 }
 MAX_SPECIALIST_RETRIES = 3
@@ -31,6 +44,14 @@ def is_categorical(df: pd.DataFrame, col: str) -> bool:
     return col in df.columns and not pd.api.types.is_numeric_dtype(df[col])
 
 
+def category_count(df: pd.DataFrame, col: str) -> int:
+    return int(df[col].dropna().nunique()) if col in df.columns else 0
+
+
+def is_two_by_two(df: pd.DataFrame, x: str, y: str) -> bool:
+    return x in df.columns and y in df.columns and pd.crosstab(df[x], df[y]).shape == (2, 2)
+
+
 def build_args_key_rules(allowed: list[str]) -> str:
     lines: list[str] = []
     for fn in allowed:
@@ -40,9 +61,17 @@ def build_args_key_rules(allowed: list[str]) -> str:
         elif fn == "linear_regression":
             lines.append("- linear_regression: args keys must be {x, y}; x is numeric predictor, y is numeric target.")
         elif fn == "independent_t_test":
-            lines.append("- independent_t_test: args keys must be {numeric, group}; numeric must be numeric, group categorical.")
+            lines.append("- independent_t_test: args keys must be {numeric, group}; numeric must be numeric, group categorical with exactly 2 groups.")
+        elif fn == "one_way_anova":
+            lines.append("- one_way_anova: args keys must be {numeric, group}; numeric must be numeric, group categorical with 3 or more groups.")
+        elif fn == "mann_whitney_u":
+            lines.append("- mann_whitney_u: args keys must be {numeric, group}; numeric must be numeric, group categorical with exactly 2 groups.")
+        elif fn == "kruskal_wallis":
+            lines.append("- kruskal_wallis: args keys must be {numeric, group}; numeric must be numeric, group categorical with 3 or more groups.")
         elif fn == "chi_square_independence":
             lines.append("- chi_square_independence: args keys must be {x, y}; both must be categorical columns.")
+        elif fn == "fisher_exact_test":
+            lines.append("- fisher_exact_test: args keys must be {x, y}; both must be categorical columns forming a 2x2 table.")
         elif fn == "shapiro_wilk":
             lines.append("- shapiro_wilk: args keys must be {x}; x must be a numeric column.")
     return "\n".join(lines)
@@ -70,11 +99,21 @@ def valid_for_df(call: SpecialistCallProposal, df: pd.DataFrame, specialist_name
     if fn in {"pearson_correlation", "spearman_correlation", "linear_regression"}:
         return is_numeric(df, args.get("x", "")) and is_numeric(df, args.get("y", ""))
 
-    if fn == "independent_t_test":
-        return is_numeric(df, args.get("numeric", "")) and is_categorical(df, args.get("group", ""))
+    if fn in {"independent_t_test", "mann_whitney_u"}:
+        group = args.get("group", "")
+        return is_numeric(df, args.get("numeric", "")) and is_categorical(df, group) and category_count(df, group) == 2
+
+    if fn in {"one_way_anova", "kruskal_wallis"}:
+        group = args.get("group", "")
+        return is_numeric(df, args.get("numeric", "")) and is_categorical(df, group) and category_count(df, group) >= 3
 
     if fn == "chi_square_independence":
         return is_categorical(df, args.get("x", "")) and is_categorical(df, args.get("y", ""))
+
+    if fn == "fisher_exact_test":
+        x = args.get("x", "")
+        y = args.get("y", "")
+        return is_categorical(df, x) and is_categorical(df, y) and is_two_by_two(df, x, y)
 
     if fn == "shapiro_wilk":
         return is_numeric(df, args.get("x", ""))
@@ -125,8 +164,9 @@ def fallback_call(specialist_name: str, hypothesis: str, df: pd.DataFrame) -> Fu
         )
 
     if specialist_name == "bivariate" and len(numeric_cols) >= 1 and len(categorical_cols) >= 1:
+        group_count = df[categorical_cols[0]].dropna().nunique()
         return FunctionCall(
-            function_name="independent_t_test",
+            function_name="one_way_anova" if group_count >= 3 else "independent_t_test",
             numeric=numeric_cols[0],
             group=categorical_cols[0],
             hypothesis=hypothesis,

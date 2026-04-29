@@ -18,7 +18,10 @@ def to_narrative(insight: Insight) -> str:
     prompt = (
         "Return ONLY a single JSON object with exactly one key: narrative. No prose.\n"
         "Output format example: {\"narrative\":\"...\"}.\n"
-        "Write the narrative in at most two concise sentences.\n"
+        "Write for a non-technical reader in at most two concise sentences.\n"
+        "Explain what the finding means in the dataset, using the column names naturally.\n"
+        "Do not mention p-values, test names, statistics, sample size, or model diagnostics unless they are essential.\n"
+        "Prefer practical language about direction, difference, strength, or pattern.\n"
         f"Payload: {json.dumps(payload)}"
     )
 

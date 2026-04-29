@@ -89,6 +89,122 @@ def independent_t_test(df: pd.DataFrame, numeric: str, group: str) -> dict[str, 
     }
 
 
+def one_way_anova(df: pd.DataFrame, numeric: str, group: str) -> dict[str, Any]:
+    valid = df[[numeric, group]].dropna()
+    groups = list(valid[group].unique())
+    if len(groups) < 3:
+        return {
+            "test": "one_way_anova",
+            "statistic": np.nan,
+            "p_value": 1.0,
+            "n": int(len(valid)),
+            "note": "Requires at least 3 groups",
+        }
+
+    samples = [valid[valid[group] == value][numeric].astype(float) for value in groups]
+    if any(len(sample) < 2 for sample in samples):
+        return {
+            "test": "one_way_anova",
+            "statistic": np.nan,
+            "p_value": 1.0,
+            "n": int(len(valid)),
+            "groups": ", ".join(str(value) for value in groups),
+            "note": "Requires at least 2 observations in each group",
+        }
+
+    stat, p_value = scipy_stats.f_oneway(*samples)
+    grand_mean = float(valid[numeric].astype(float).mean())
+    ss_between = sum(len(sample) * (float(sample.mean()) - grand_mean) ** 2 for sample in samples)
+    ss_total = float(((valid[numeric].astype(float) - grand_mean) ** 2).sum())
+    eta_squared = ss_between / ss_total if ss_total else 0.0
+
+    return {
+        "test": "one_way_anova",
+        "statistic": float(stat),
+        "p_value": float(p_value),
+        "n": int(len(valid)),
+        "groups": ", ".join(str(value) for value in groups),
+        "group_count": int(len(groups)),
+        "eta_squared": float(eta_squared),
+    }
+
+
+def mann_whitney_u(df: pd.DataFrame, numeric: str, group: str) -> dict[str, Any]:
+    valid = df[[numeric, group]].dropna()
+    groups = list(valid[group].unique())
+    if len(groups) != 2:
+        return {
+            "test": "mann_whitney_u",
+            "statistic": np.nan,
+            "p_value": 1.0,
+            "n": int(len(valid)),
+            "note": "Requires exactly 2 groups",
+        }
+
+    g1 = valid[valid[group] == groups[0]][numeric].astype(float)
+    g2 = valid[valid[group] == groups[1]][numeric].astype(float)
+    if len(g1) < 1 or len(g2) < 1:
+        return {
+            "test": "mann_whitney_u",
+            "statistic": np.nan,
+            "p_value": 1.0,
+            "n": int(len(valid)),
+            "group_a": str(groups[0]),
+            "group_b": str(groups[1]),
+            "note": "Requires at least 1 observation in each group",
+        }
+
+    stat, p_value = scipy_stats.mannwhitneyu(g1, g2, alternative="two-sided")
+    rank_biserial = (2 * float(stat) / (len(g1) * len(g2))) - 1
+    return {
+        "test": "mann_whitney_u",
+        "statistic": float(stat),
+        "p_value": float(p_value),
+        "n": int(len(valid)),
+        "group_a": str(groups[0]),
+        "group_b": str(groups[1]),
+        "group_a_n": int(len(g1)),
+        "group_b_n": int(len(g2)),
+        "rank_biserial": float(rank_biserial),
+    }
+
+
+def kruskal_wallis(df: pd.DataFrame, numeric: str, group: str) -> dict[str, Any]:
+    valid = df[[numeric, group]].dropna()
+    groups = list(valid[group].unique())
+    if len(groups) < 3:
+        return {
+            "test": "kruskal_wallis",
+            "statistic": np.nan,
+            "p_value": 1.0,
+            "n": int(len(valid)),
+            "note": "Requires at least 3 groups",
+        }
+
+    samples = [valid[valid[group] == value][numeric].astype(float) for value in groups]
+    if any(len(sample) < 1 for sample in samples):
+        return {
+            "test": "kruskal_wallis",
+            "statistic": np.nan,
+            "p_value": 1.0,
+            "n": int(len(valid)),
+            "groups": ", ".join(str(value) for value in groups),
+            "note": "Requires at least 1 observation in each group",
+        }
+
+    stat, p_value = scipy_stats.kruskal(*samples)
+    epsilon_squared = (float(stat) - len(groups) + 1) / (len(valid) - len(groups)) if len(valid) > len(groups) else 0.0
+    return {
+        "test": "kruskal_wallis",
+        "statistic": float(stat),
+        "p_value": float(p_value),
+        "n": int(len(valid)),
+        "groups": ", ".join(str(value) for value in groups),
+        "group_count": int(len(groups)),
+        "epsilon_squared": float(max(0.0, epsilon_squared)),
+    }
+
+
 def chi_square_independence(df: pd.DataFrame, x: str, y: str) -> dict[str, Any]:
     valid = df[[x, y]].dropna()
     contingency = pd.crosstab(valid[x], valid[y]).astype(float)
@@ -112,6 +228,30 @@ def chi_square_independence(df: pd.DataFrame, x: str, y: str) -> dict[str, Any]:
         "dof": dof,
         "n": int(len(valid)),
         "cramers_v": float(cramers_v) if cramers_v is not None else None,
+    }
+
+
+def fisher_exact_test(df: pd.DataFrame, x: str, y: str) -> dict[str, Any]:
+    valid = df[[x, y]].dropna()
+    contingency = pd.crosstab(valid[x], valid[y]).astype(float)
+    if contingency.shape != (2, 2):
+        return {
+            "test": "fisher_exact_test",
+            "statistic": np.nan,
+            "p_value": 1.0,
+            "n": int(len(valid)),
+            "note": "Requires a 2x2 contingency table",
+        }
+
+    odds_ratio, p_value = scipy_stats.fisher_exact(contingency.values, alternative="two-sided")
+    return {
+        "test": "fisher_exact_test",
+        "statistic": float(odds_ratio),
+        "odds_ratio": float(odds_ratio),
+        "p_value": float(p_value),
+        "n": int(len(valid)),
+        "row_levels": ", ".join(str(value) for value in contingency.index),
+        "column_levels": ", ".join(str(value) for value in contingency.columns),
     }
 
 
@@ -173,7 +313,11 @@ FUNCTION_REGISTRY = {
     "pearson_correlation": pearson_correlation,
     "spearman_correlation": spearman_correlation,
     "independent_t_test": independent_t_test,
+    "one_way_anova": one_way_anova,
+    "mann_whitney_u": mann_whitney_u,
+    "kruskal_wallis": kruskal_wallis,
     "chi_square_independence": chi_square_independence,
+    "fisher_exact_test": fisher_exact_test,
     "linear_regression": linear_regression,
     "shapiro_wilk": shapiro_wilk,
 }

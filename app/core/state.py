@@ -27,5 +27,9 @@ class EDAState(BaseModel):
     current_execution_result: ExecutionResult | None = None
     current_skeptic_result: SkepticResult | None = None
 
+    executive_summary: str = ""
+    recommended_actions: list[str] = Field(default_factory=list)
+    data_quality_notes: list[str] = Field(default_factory=list)
+
     stop: bool = False
     pdf_bytes: bytes | None = None
