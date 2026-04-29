@@ -7,7 +7,7 @@ import chromadb
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parents[2] / "knowledge"
 CHROMA_DIR = KNOWLEDGE_DIR / "chroma_db"
-COLLECTION_NAME = "statistical_eda_knowledge"
+COLLECTION_NAME = "statistical_eda_knowledge_v2"
 
 
 def _parse_front_matter(content: str) -> tuple[dict[str, str], str]:
@@ -67,20 +67,33 @@ def _source_signature() -> str:
 
 
 def _collection():
+    import os
+    from dotenv import load_dotenv
+    from chromadb.utils.embedding_functions import GoogleGenerativeAiEmbeddingFunction
+
+    load_dotenv()
+    api_key = os.getenv("GOOGLE_API_KEY", "")
+    ef = GoogleGenerativeAiEmbeddingFunction(api_key=api_key) if api_key else None
+
     client = chromadb.PersistentClient(path=str(CHROMA_DIR))
     signature = _source_signature()
     collection = client.get_or_create_collection(
         name=COLLECTION_NAME,
         metadata={"source_signature": signature},
+        embedding_function=ef,
     )
 
     current_signature = collection.metadata.get("source_signature") if collection.metadata else None
     if current_signature != signature or collection.count() == 0:
         documents = _load_documents()
-        client.delete_collection(name=COLLECTION_NAME)
+        try:
+            client.delete_collection(name=COLLECTION_NAME)
+        except Exception:
+            pass
         collection = client.create_collection(
             name=COLLECTION_NAME,
             metadata={"source_signature": signature},
+            embedding_function=ef,
         )
         if documents:
             collection.add(
