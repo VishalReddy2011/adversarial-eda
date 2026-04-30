@@ -37,12 +37,22 @@ def _accepted_payload(insights: list[Insight]) -> list[dict[str, Any]]:
 
 
 def build_executive_summary(dataset_name: str, data_profile: dict[str, Any], insights: list[Insight]) -> str:
+    accepted_findings = _accepted_payload(insights)
+    if not accepted_findings:
+        shape = data_profile.get("shape", {})
+        rows = shape.get("rows", "unknown")
+        columns = shape.get("columns", "unknown")
+        return (
+            f"{dataset_name} contains {rows} rows and {columns} columns for exploratory analysis. "
+            "No statistically validated key finding was accepted during this run."
+        )
+
     payload = {
         "dataset_name": dataset_name,
         "shape": data_profile.get("shape", {}),
         "columns": _column_names(data_profile),
         "column_types": data_profile.get("descriptive_statistics", {}).get("overview", {}).get("column_types", {}),
-        "accepted_findings": _accepted_payload(insights),
+        "accepted_findings": accepted_findings,
     }
     prompt = (
         "Return ONLY JSON with exactly one key: summary.\n"

@@ -6,8 +6,8 @@ from app.core.models import OrchestratorDecision, OrchestratorProposal
 from app.services.llm_client import structured
 
 
-MAX_ACCEPTED = 3
-MAX_FUNCTION_CALLS = 5
+MAX_ACCEPTED = 4
+MAX_FUNCTION_CALLS = 6
 MAX_ORCHESTRATOR_RETRIES = 5
 ALLOWED_SPECIALISTS = {"univariate", "bivariate", "regression"}
 MAX_PROFILE_COLUMNS = 40

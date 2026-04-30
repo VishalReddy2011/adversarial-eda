@@ -86,7 +86,7 @@ def prepare_data(state: AnalysisState) -> dict[str, Any]:
     return {
         "cleaning_plan": cleaning_plan,
         "cleaned_df": cleaned_df,
-        "data_profile": profile_dataframe(cleaned_df),
+        "data_profile": profile_dataframe(raw_df),
     }
 
 

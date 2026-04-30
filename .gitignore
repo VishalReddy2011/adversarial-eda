@@ -5,3 +5,4 @@ test.ipynb
 plan.txt
 .vscode
 knowledge/chroma_db/
+*.log
